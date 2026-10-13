@@ -1,0 +1,16 @@
+## 忽略 SQLite 数据库与构建产物
+[uipath_jobs*.db]
+[uipath_jobs*.db-shm]
+[uipath_jobs*.db-wal]
+bin/
+*.user
+.vs/
+.vscode/
+.idea/
+*.log
+TestResults/
+
+## 保留模板
+!**/appsettings.*.json
+!**/appsettings.json
+!**/launchSettings.json

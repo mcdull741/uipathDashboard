@@ -1,0 +1,214 @@
+@model UiPathJobManager.Models.SyncStatusViewModel
+@{
+    ViewData["Title"] = "数据看板";
+}
+
+<div class="page-header d-flex flex-wrap justify-content-between align-items-center mb-4">
+    <div>
+        <h2 class="mb-1"><i class="bi bi-speedometer2 text-primary"></i> 数据看板</h2>
+        <p class="text-muted mb-0">
+            最后同步时间:
+            @if (Model.LastSyncTime.HasValue)
+            {
+                <span class="text-success">@Model.LastSyncTime.Value.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss")</span>
+            }
+            else
+            {
+                <span class="text-warning">尚未同步</span>
+            }
+        </p>
+    </div>
+    <form asp-action="SyncNow" method="post" class="d-inline">
+        @Html.AntiForgeryToken()
+        <button type="submit" class="btn btn-primary">
+            <i class="bi bi-arrow-clockwise"></i> 立即同步
+        </button>
+        <button type="button" class="btn btn-outline-secondary" onclick="testConnection()">
+            <i class="bi bi-plug"></i> 测试连接
+        </button>
+    </form>
+</div>
+
+<div class="row g-3 mb-4">
+    <div class="col-12 col-sm-6 col-lg-3">
+        <div class="card stat-card stat-primary h-100">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <p class="text-muted mb-1 small">今日 Job</p>
+                        <h3 class="mb-0">@Model.TodayJobs</h3>
+                    </div>
+                    <i class="bi bi-calendar-check stat-icon"></i>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-12 col-sm-6 col-lg-3">
+        <div class="card stat-card stat-success h-100">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <p class="text-muted mb-1 small">今日成功</p>
+                        <h3 class="mb-0">@Model.SuccessfulToday</h3>
+                    </div>
+                    <i class="bi bi-check-circle stat-icon"></i>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-12 col-sm-6 col-lg-3">
+        <div class="card stat-card stat-danger h-100">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <p class="text-muted mb-1 small">今日失败</p>
+                        <h3 class="mb-0">@Model.FailedToday</h3>
+                    </div>
+                    <i class="bi bi-x-circle stat-icon"></i>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-12 col-sm-6 col-lg-3">
+        <div class="card stat-card stat-info h-100">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <p class="text-muted mb-1 small">运行中</p>
+                        <h3 class="mb-0">@Model.RunningNow</h3>
+                    </div>
+                    <i class="bi bi-play-circle stat-icon"></i>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row g-3">
+    <div class="col-12 col-xl-8">
+        <div class="card shadow-sm">
+            <div class="card-header bg-light">
+                <h5 class="mb-0"><i class="bi bi-graph-up"></i> 近 7 天每日成功 Job 数</h5>
+            </div>
+            <div class="card-body">
+                <canvas id="trendChart" height="100"></canvas>
+            </div>
+        </div>
+    </div>
+    <div class="col-12 col-xl-4">
+        <div class="card shadow-sm h-100">
+            <div class="card-header bg-light">
+                <h5 class="mb-0"><i class="bi bi-pie-chart"></i> 状态分布</h5>
+            </div>
+            <div class="card-body">
+                <canvas id="stateChart" height="200"></canvas>
+            </div>
+        </div>
+    </div>
+    <div class="col-12">
+        <div class="card shadow-sm">
+            <div class="card-header bg-light">
+                <h5 class="mb-0"><i class="bi bi-bar-chart"></i> 热门流程 Top 8</h5>
+            </div>
+            <div class="card-body">
+                <canvas id="topProcsChart" height="80"></canvas>
+            </div>
+        </div>
+    </div>
+    <div class="col-12">
+        <div class="card shadow-sm">
+            <div class="card-header bg-light">
+                <h5 class="mb-0"><i class="bi bi-database"></i> 数据库统计</h5>
+            </div>
+            <div class="card-body">
+                <p class="mb-0">本地 SQLite 中累计 Job 数: <strong class="text-primary">@Model.TotalJobs</strong> 条</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        const trendData = @Html.Raw(Json.Serialize(Model.TrendData));
+        const stateData = @Html.Raw(Json.Serialize(Model.StateDistribution));
+        const topProcData = @Html.Raw(Json.Serialize(Model.TopProcesses));
+
+        if (trendData.length > 0) {
+            new Chart(document.getElementById('trendChart'), {
+                type: 'line',
+                data: {
+                    labels: trendData.map(d => d.label),
+                    datasets: [{
+                        label: '成功数',
+                        data: trendData.map(d => d.value),
+                        borderColor: '#198754',
+                        backgroundColor: 'rgba(25, 135, 84, 0.1)',
+                        tension: 0.35,
+                        fill: true,
+                        pointRadius: 4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: { legend: { display: false } },
+                    scales: { y: { beginAtZero: true, ticks: { precision: 0 } } }
+                }
+            });
+        } else {
+            document.getElementById('trendChart').parentElement.innerHTML = '<p class="text-muted text-center mb-0">暂无数据</p>';
+        }
+
+        if (stateData.length > 0) {
+            const stateColors = {
+                'Successful': '#198754',
+                'Failed': '#dc3545',
+                'Running': '#0d6efd',
+                'Pending': '#ffc107',
+                'Stopped': '#6c757d',
+                'Faulted': '#fd7e14'
+            };
+            new Chart(document.getElementById('stateChart'), {
+                type: 'doughnut',
+                data: {
+                    labels: stateData.map(d => d.label),
+                    datasets: [{
+                        data: stateData.map(d => d.value),
+                        backgroundColor: stateData.map(d => stateColors[d.label] || '#6c757d')
+                    }]
+                },
+                options: { responsive: true, plugins: { legend: { position: 'bottom' } } }
+            });
+        } else {
+            document.getElementById('stateChart').parentElement.innerHTML = '<p class="text-muted text-center mb-0">暂无数据</p>';
+        }
+
+        if (topProcData.length > 0) {
+            new Chart(document.getElementById('topProcsChart'), {
+                type: 'bar',
+                data: {
+                    labels: topProcData.map(d => d.label),
+                    datasets: [{
+                        label: 'Job 数',
+                        data: topProcData.map(d => d.value),
+                        backgroundColor: '#0d6efd'
+                    }]
+                },
+                options: {
+                    indexAxis: 'y',
+                    responsive: true,
+                    plugins: { legend: { display: false } },
+                    scales: { x: { beginAtZero: true, ticks: { precision: 0 } } }
+                }
+            });
+        } else {
+            document.getElementById('topProcsChart').parentElement.innerHTML = '<p class="text-muted text-center mb-0">暂无数据</p>';
+        }
+
+        function testConnection() {
+            fetch('@Url.Action("TestConnection", "Dashboard")')
+                .then(r => r.json())
+                .then(data => alert(data.message))
+                .catch(err => alert('测试失败: ' + err));
+        }
+    </script>
+}

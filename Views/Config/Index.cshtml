@@ -1,0 +1,104 @@
+@model List<UiPathJobManager.Models.AppConfig>
+@{
+    ViewData["Title"] = "系统配置";
+    var grouped = Model
+        .GroupBy(c => c.ConfigKey.StartsWith("UiPath.") ? "UiPath Orchestrator" :
+                       c.ConfigKey.StartsWith("DefaultAdmin.") ? "默认管理员" : "其他")
+        .ToList();
+}
+
+<div class="page-header mb-3">
+    <h2 class="mb-1"><i class="bi bi-gear text-primary"></i> 系统配置</h2>
+    <p class="text-muted mb-0 small">配置 UiPath Orchestrator 连接参数、凭据、同步策略</p>
+</div>
+
+<form asp-action="Save" method="post">
+    @Html.AntiForgeryToken()
+
+    @foreach (var group in grouped)
+    {
+        <div class="card shadow-sm mb-3">
+            <div class="card-header bg-light">
+                <h5 class="mb-0"><i class="bi bi-folder2-open"></i> @group.Key</h5>
+            </div>
+            <div class="card-body">
+                <div class="row g-3">
+                    @foreach (var c in group)
+                    {
+                        var isSecret = c.ConfigKey.Contains("Secret") || c.ConfigKey.Contains("Password") || c.ConfigKey.Contains("ApiKey");
+                        <div class="col-12 col-md-6">
+                            <label class="form-label small fw-semibold">@c.ConfigKey</label>
+                            @if (c.ConfigKey.Contains("UseMockData") || c.ConfigKey.Contains("SyncIntervalMinutes") || c.ConfigKey.Contains("PageSize"))
+                            {
+                                <input type="text" value="@c.ConfigValue" name="values[@c.ConfigKey]" class="form-control form-control-sm" />
+                                if (c.ConfigKey == "SyncIntervalMinutes" || c.ConfigKey == "PageSize")
+                                {
+                                    <input type="range" min="@(c.ConfigKey == "SyncIntervalMinutes" ? "1" : "10")" max="@(c.ConfigKey == "SyncIntervalMinutes" ? "60" : "500")" step="1"
+                                           value="@c.ConfigValue" class="form-range mt-1"
+                                           oninput="this.previousElementSibling.value=this.value" />
+                                }
+                            }
+                            else
+                            {
+                                <div class="input-group input-group-sm">
+                                    <input type="@(isSecret ? "password" : "text")" value="@c.ConfigValue" name="values[@c.ConfigKey]" class="form-control" />
+                                    @if (isSecret)
+                                    {
+                                        <button type="button" class="btn btn-outline-secondary" onclick="toggleSecret(this)">
+                                            <i class="bi bi-eye"></i>
+                                        </button>
+                                    }
+                                </div>
+                            }
+                            @if (!string.IsNullOrEmpty(c.Description))
+                            {
+                                <small class="text-muted">@c.Description</small>
+                            }
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+    }
+
+    <div class="d-flex gap-2">
+        <button type="submit" class="btn btn-primary">
+            <i class="bi bi-save"></i> 保存配置
+        </button>
+        <button type="button" class="btn btn-outline-info" onclick="testConnection()">
+            <i class="bi bi-plug"></i> 测试连接
+        </button>
+    </div>
+</form>
+
+<div class="card shadow-sm mt-4">
+    <div class="card-header bg-light">
+        <h6 class="mb-0"><i class="bi bi-info-circle"></i> 配置说明</h6>
+    </div>
+    <div class="card-body small">
+        <ul class="mb-0">
+            <li><strong>UseMockData = true</strong>: 使用内置模拟数据,便于本地测试,无需真实 UiPath 环境。</li>
+            <li><strong>BaseUrl</strong>: UiPath Orchestrator 完整地址,例如 <code>https://cloud.uipath.com/org/tenant/orchestrator_</code></li>
+            <li><strong>TenantName</strong>: 租户名(Cloud 平台必须).</li>
+            <li><strong>AuthType</strong>: <code>Bearer</code> 表示使用 API Key; <code>OAuth</code> 使用 ClientId/ClientSecret。</li>
+            <li><strong>SyncIntervalMinutes</strong>: 后台同步间隔,最小 1 分钟。</li>
+            <li><strong>PageSize</strong>: 每次拉取的页大小,用于增量同步。</li>
+        </ul>
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        function toggleSecret(btn) {
+            const input = btn.parentElement.querySelector('input');
+            input.type = input.type === 'password' ? 'text' : 'password';
+            btn.querySelector('i').className = input.type === 'password' ? 'bi bi-eye' : 'bi bi-eye-slash';
+        }
+        function testConnection() {
+            fetch('@Url.Action("TestConnection", "Dashboard")')
+                .then(r => r.json())
+                .then(data => alert(data.message))
+                .catch(err => alert('测试失败: ' + err));
+        }
+    </script>
+}

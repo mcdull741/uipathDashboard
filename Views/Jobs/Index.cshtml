@@ -1,0 +1,201 @@
+@model UiPathJobManager.Models.JobQueryViewModel
+@{
+    ViewData["Title"] = "Job 列表管理";
+    var states = (string[])ViewData["StateList"]!;
+}
+
+<div class="page-header d-flex flex-wrap justify-content-between align-items-center mb-3">
+    <div>
+        <h2 class="mb-1"><i class="bi bi-list-task text-primary"></i> Job 列表</h2>
+        <p class="text-muted mb-0 small">查询、筛选、查看与编辑 UiPath Job</p>
+    </div>
+</div>
+
+<div class="card shadow-sm mb-3">
+    <div class="card-body">
+        <form asp-action="Fetch" method="post" class="row g-2 align-items-end" id="fetchForm">
+            @Html.AntiForgeryToken()
+            <div class="col-12 col-md-3 col-lg-2">
+                <label class="form-label small">开始时间</label>
+                <input asp-for="StartDate" type="datetime-local" class="form-control form-control-sm" />
+            </div>
+            <div class="col-12 col-md-3 col-lg-2">
+                <label class="form-label small">结束时间</label>
+                <input asp-for="EndDate" type="datetime-local" class="form-control form-control-sm" />
+            </div>
+            <div class="col-12 col-md-3 col-lg-2">
+                <label class="form-label small">流程名</label>
+                <input asp-for="ProcessName" class="form-control form-control-sm" placeholder="可选" />
+            </div>
+            <div class="col-12 col-md-12 col-lg-3 d-grid">
+                <button type="submit" class="btn btn-success btn-sm">
+                    <i class="bi bi-cloud-download"></i> 调用 API 拉取并存入本地 SQLite
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="card shadow-sm mb-3">
+    <div class="card-body">
+        <form asp-action="Index" method="get" class="row g-2 align-items-end">
+            <div class="col-6 col-md-3 col-lg-2">
+                <label class="form-label small">开始时间</label>
+                <input asp-for="StartDate" type="datetime-local" class="form-control form-control-sm" />
+            </div>
+            <div class="col-6 col-md-3 col-lg-2">
+                <label class="form-label small">结束时间</label>
+                <input asp-for="EndDate" type="datetime-local" class="form-control form-control-sm" />
+            </div>
+            <div class="col-6 col-md-3 col-lg-2">
+                <label class="form-label small">状态</label>
+                <select asp-for="State" class="form-select form-select-sm">
+                    <option value="">全部</option>
+                    @foreach (var s in states)
+                    {
+                        <option value="@s">@s</option>
+                    }
+                </select>
+            </div>
+            <div class="col-6 col-md-3 col-lg-2">
+                <label class="form-label small">流程名</label>
+                <input asp-for="ProcessName" class="form-control form-control-sm" placeholder="模糊匹配" />
+            </div>
+            <div class="col-6 col-md-3 col-lg-2">
+                <label class="form-label small">关键字</label>
+                <input asp-for="Keyword" class="form-control form-control-sm" placeholder="机器人/错误等" />
+            </div>
+            <div class="col-12 col-md-6 col-lg-2 d-flex gap-2">
+                <button type="submit" class="btn btn-primary btn-sm flex-grow-1">
+                    <i class="bi bi-search"></i> 查询
+                </button>
+                <a asp-action="Index" class="btn btn-outline-secondary btn-sm">
+                    <i class="bi bi-arrow-counterclockwise"></i>
+                </a>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="card shadow-sm">
+    <div class="card-header bg-light d-flex justify-content-between align-items-center">
+        <span>
+            <i class="bi bi-table"></i> 共 <strong>@Model.TotalCount</strong> 条结果
+            @if (Model.TotalPages > 1)
+            {
+                <span class="text-muted small ms-2">第 @Model.PageIndex / @Model.TotalPages 页</span>
+            }
+        </span>
+        <span class="text-muted small">每页 @Model.PageSize 条</span>
+    </div>
+    <div class="table-responsive">
+        <table class="table table-hover table-sm align-middle mb-0">
+            <thead class="table-light">
+                <tr>
+                    <th style="width:90px">Job ID</th>
+                    <th>流程名</th>
+                    <th class="d-none d-lg-table-cell">机器人/机器</th>
+                    <th>状态</th>
+                    <th>开始时间</th>
+                    <th class="d-none d-md-table-cell">耗时</th>
+                    <th class="d-none d-xl-table-cell">标签</th>
+                    <th style="width:180px">操作</th>
+                </tr>
+            </thead>
+            <tbody>
+                @if (!Model.Results.Any())
+                {
+                    <tr><td colspan="8" class="text-center text-muted py-5">暂无数据,请先拉取或调整查询条件</td></tr>
+                }
+                @foreach (var j in Model.Results)
+                {
+                    <tr>
+                        <td><code>@j.Id</code></td>
+                        <td>
+                            <div class="fw-semibold">@j.ProcessName</div>
+                            @if (!string.IsNullOrEmpty(j.ReleaseVersion))
+                            {
+                                <small class="text-muted">v@j.ReleaseVersion</small>
+                            }
+                        </td>
+                        <td class="d-none d-lg-table-cell">
+                            <small>
+                                <i class="bi bi-robot"></i> @j.RobotName<br />
+                                <i class="bi bi-pc-display"></i> @j.MachineName
+                            </small>
+                        </td>
+                        <td><span class="badge bg-@j.StateBadgeClass">@j.State</span></td>
+                        <td>
+                            <div>@j.StartTime.ToString("MM-dd HH:mm")</div>
+                            <small class="text-muted">@j.StartTime.ToString("yyyy")</small>
+                        </td>
+                        <td class="d-none d-md-table-cell">
+                            @if (j.Duration.HasValue)
+                            {
+                                <span>@j.Duration.Value.ToString(@"hh\:mm\:ss")</span>
+                            }
+                            else
+                            {
+                                <span class="text-muted">--</span>
+                            }
+                        </td>
+                        <td class="d-none d-xl-table-cell">
+                            @if (!string.IsNullOrEmpty(j.Tag))
+                            {
+                                <span class="badge bg-info">@j.Tag</span>
+                            }
+                        </td>
+                        <td>
+                            <a asp-action="Details" asp-route-id="@j.Id" class="btn btn-sm btn-outline-info" title="详情">
+                                <i class="bi bi-eye"></i>
+                            </a>
+                            @if (User.IsInRole("Admin"))
+                            {
+                                <a asp-action="Edit" asp-route-id="@j.Id" class="btn btn-sm btn-outline-primary" title="编辑">
+                                    <i class="bi bi-pencil"></i>
+                                </a>
+                                <form asp-action="Delete" asp-route-id="@j.Id" method="post" class="d-inline" onsubmit="return confirm('确认删除 Job #@j.ID?');">
+                                    @Html.AntiForgeryToken()
+                                    <button type="submit" class="btn btn-sm btn-outline-danger" title="删除">
+                                        <i class="bi bi-trash"></i>
+                                    </button>
+                                </form>
+                            }
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+    @if (Model.TotalPages > 1)
+    {
+        <div class="card-footer">
+            <nav>
+                <ul class="pagination pagination-sm mb-0 justify-content-center flex-wrap">
+                    <li class="page-item @(Model.PageIndex == 1 ? "disabled" : "")">
+                        <a class="page-link" asp-action="Index" asp-route-PageIndex="@(Model.PageIndex - 1)" asp-route-PageSize="@Model.PageSize"
+                           asp-route-StartDate="@Model.StartDate" asp-route-EndDate="@Model.EndDate"
+                           asp-route-State="@Model.State" asp-route-ProcessName="@Model.ProcessName" asp-route-Keyword="@Model.Keyword">
+                            <i class="bi bi-chevron-left"></i>
+                        </a>
+                    </li>
+                    @for (int i = Math.Max(1, Model.PageIndex - 2); i <= Math.Min(Model.TotalPages, Model.PageIndex + 2); i++)
+                    {
+                        <li class="page-item @(i == Model.PageIndex ? "active" : "")">
+                            <a class="page-link" asp-action="Index" asp-route-PageIndex="@i" asp-route-PageSize="@Model.PageSize"
+                               asp-route-StartDate="@Model.StartDate" asp-route-EndDate="@Model.EndDate"
+                               asp-route-State="@Model.State" asp-route-ProcessName="@Model.ProcessName" asp-route-Keyword="@Model.Keyword">@i</a>
+                        </li>
+                    }
+                    <li class="page-item @(Model.PageIndex == Model.TotalPages ? "disabled" : "")">
+                        <a class="page-link" asp-action="Index" asp-route-PageIndex="@(Model.PageIndex + 1)" asp-route-PageSize="@Model.PageSize"
+                           asp-route-StartDate="@Model.StartDate" asp-route-EndDate="@Model.EndDate"
+                           asp-route-State="@Model.State" asp-route-ProcessName="@Model.ProcessName" asp-route-Keyword="@Model.Keyword">
+                            <i class="bi bi-chevron-right"></i>
+                        </a>
+                    </li>
+                </ul>
+            </nav>
+        </div>
+    }
+</div>

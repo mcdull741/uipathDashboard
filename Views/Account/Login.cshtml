@@ -1,0 +1,49 @@
+@model LoginViewModel
+@{
+    ViewData["Title"] = "登录";
+    Layout = "_Layout";
+}
+
+<div class="auth-wrapper">
+    <div class="auth-card shadow-lg">
+        <div class="auth-header text-center">
+            <i class="bi bi-robot display-3 text-primary"></i>
+            <h3 class="mt-2 mb-0 fw-bold">UiPath Job 管理平台</h3>
+            <p class="text-muted small mb-0">ASP.NET Core 10</p>
+        </div>
+        <div class="auth-body p-4">
+            <form asp-action="Login" method="post">
+                @Html.AntiForgeryToken()
+                <input type="hidden" asp-for="ReturnUrl" />
+                <div asp-validation-summary="ModelOnly" class="text-danger small mb-3"></div>
+
+                <div class="form-floating mb-3">
+                    <input asp-for="Username" class="form-control" placeholder="用户名" autocomplete="username" />
+                    <label asp-for="Username"><i class="bi bi-person"></i> 用户名</label>
+                </div>
+
+                <div class="form-floating mb-3">
+                    <input asp-for="Password" type="password" class="form-control" placeholder="密码" autocomplete="current-password" />
+                    <label asp-for="Password"><i class="bi bi-shield-lock"></i> 密码</label>
+                </div>
+
+                <div class="form-check mb-3">
+                    <input asp-for="RememberMe" class="form-check-input" />
+                    <label asp-for="RememberMe" class="form-check-label">记住我</label>
+                </div>
+
+                <button type="submit" class="btn btn-primary w-100 py-2 fw-bold">
+                    <i class="bi bi-box-arrow-in-right"></i> 登 录
+                </button>
+            </form>
+
+            <div class="mt-4 text-center text-muted small">
+                <i class="bi bi-info-circle"></i> 默认账号: <code>admin</code> / <code>Admin@123456</code>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <partial name="_ValidationScriptsPartial" />
+}
