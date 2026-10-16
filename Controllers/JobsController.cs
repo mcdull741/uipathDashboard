@@ -26,6 +26,14 @@ public class JobsController : Controller
         // 同步查询参数到 ViewData
         ViewData["StateList"] = new[] { "Successful", "Failed", "Running", "Pending", "Stopped", "Faulted" };
 
+        // 文件夹下拉：取库里已有的来源文件夹
+        ViewData["FolderList"] = await _db.Jobs
+            .Where(j => j.FolderName != null && j.FolderName != "")
+            .Select(j => j.FolderName!)
+            .Distinct()
+            .OrderBy(f => f)
+            .ToListAsync();
+
         if (query.PageSize <= 0) query.PageSize = 20;
         if (query.PageSize > 200) query.PageSize = 200;
         if (query.PageIndex <= 0) query.PageIndex = 1;
@@ -52,6 +60,9 @@ public class JobsController : Controller
 
         if (!string.IsNullOrWhiteSpace(query.State))
             q = q.Where(j => j.State == query.State);
+
+        if (!string.IsNullOrWhiteSpace(query.FolderName))
+            q = q.Where(j => j.FolderName == query.FolderName);
 
         if (!string.IsNullOrWhiteSpace(query.ProcessName))
             q = q.Where(j => j.ProcessName.Contains(query.ProcessName));
@@ -103,7 +114,8 @@ public class JobsController : Controller
             EndDate = query.EndDate,
             State = query.State,
             ProcessName = query.ProcessName,
-            Keyword = query.Keyword
+            Keyword = query.Keyword,
+            FolderName = query.FolderName
         });
     }
 

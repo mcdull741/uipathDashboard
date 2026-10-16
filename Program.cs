@@ -34,6 +34,15 @@ builder.Services.AddHttpClient("UiPath", client =>
     client.Timeout = TimeSpan.FromSeconds(30);
 });
 
+// 绑定 appsettings.json 的 "UiPath" 节
+builder.Services.Configure<UiPathOptions>(builder.Configuration.GetSection("UiPath"));
+
+// Token 缓存为 Singleton，跨作用域复用同一张票据
+builder.Services.AddSingleton<IUiPathTokenProvider, UiPathTokenProvider>();
+
+// 文件夹树缓存为 Singleton，避免每次同步都拉取 /odata/Folders
+builder.Services.AddSingleton<IUiPathFolderService, UiPathFolderService>();
+
 // 应用服务
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IUiPathApiService, UiPathApiService>();

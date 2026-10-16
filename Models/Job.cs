@@ -12,6 +12,13 @@ public class Job
     [Required, MaxLength(100)]
     public string ProcessName { get; set; } = string.Empty;
 
+    /// <summary>来源文件夹的 Orchestrator FolderId</summary>
+    public long? FolderId { get; set; }
+
+    /// <summary>来源文件夹全路径，例如 Finance/AP</summary>
+    [MaxLength(200)]
+    public string? FolderName { get; set; }
+
     [MaxLength(100)]
     public string? RobotName { get; set; }
 

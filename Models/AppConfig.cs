@@ -55,6 +55,9 @@ public class JobQueryViewModel
     [Display(Name = "关键字")]
     public string? Keyword { get; set; }
 
+    [Display(Name = "文件夹")]
+    public string? FolderName { get; set; }
+
     public int PageIndex { get; set; } = 1;
     public int PageSize { get; set; } = 20;
 

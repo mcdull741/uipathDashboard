@@ -2,6 +2,7 @@
 @{
     ViewData["Title"] = "Job 列表管理";
     var states = (string[])ViewData["StateList"]!;
+    var folders = (List<string>)ViewData["FolderList"]!;
 }
 
 <div class="page-header d-flex flex-wrap justify-content-between align-items-center mb-3">
@@ -58,6 +59,16 @@
                 </select>
             </div>
             <div class="col-6 col-md-3 col-lg-2">
+                <label class="form-label small">文件夹</label>
+                <select asp-for="FolderName" class="form-select form-select-sm">
+                    <option value="">全部</option>
+                    @foreach (var f in folders)
+                    {
+                        <option value="@f">@f</option>
+                    }
+                </select>
+            </div>
+            <div class="col-6 col-md-3 col-lg-2">
                 <label class="form-label small">流程名</label>
                 <input asp-for="ProcessName" class="form-control form-control-sm" placeholder="模糊匹配" />
             </div>
@@ -94,6 +105,7 @@
                 <tr>
                     <th style="width:90px">Job ID</th>
                     <th>流程名</th>
+                    <th class="d-none d-lg-table-cell">文件夹</th>
                     <th class="d-none d-lg-table-cell">机器人/机器</th>
                     <th>状态</th>
                     <th>开始时间</th>
@@ -105,7 +117,7 @@
             <tbody>
                 @if (!Model.Results.Any())
                 {
-                    <tr><td colspan="8" class="text-center text-muted py-5">暂无数据,请先拉取或调整查询条件</td></tr>
+                    <tr><td colspan="9" class="text-center text-muted py-5">暂无数据,请先拉取或调整查询条件</td></tr>
                 }
                 @foreach (var j in Model.Results)
                 {
@@ -117,6 +129,9 @@
                             {
                                 <small class="text-muted">v@j.ReleaseVersion</small>
                             }
+                        </td>
+                        <td class="d-none d-lg-table-cell">
+                            <small class="text-muted">@(j.FolderName ?? "-")</small>
                         </td>
                         <td class="d-none d-lg-table-cell">
                             <small>
@@ -175,7 +190,8 @@
                     <li class="page-item @(Model.PageIndex == 1 ? "disabled" : "")">
                         <a class="page-link" asp-action="Index" asp-route-PageIndex="@(Model.PageIndex - 1)" asp-route-PageSize="@Model.PageSize"
                            asp-route-StartDate="@Model.StartDate" asp-route-EndDate="@Model.EndDate"
-                           asp-route-State="@Model.State" asp-route-ProcessName="@Model.ProcessName" asp-route-Keyword="@Model.Keyword">
+                           asp-route-State="@Model.State" asp-route-ProcessName="@Model.ProcessName" asp-route-Keyword="@Model.Keyword"
+                           asp-route-FolderName="@Model.FolderName">
                             <i class="bi bi-chevron-left"></i>
                         </a>
                     </li>
@@ -184,13 +200,15 @@
                         <li class="page-item @(i == Model.PageIndex ? "active" : "")">
                             <a class="page-link" asp-action="Index" asp-route-PageIndex="@i" asp-route-PageSize="@Model.PageSize"
                                asp-route-StartDate="@Model.StartDate" asp-route-EndDate="@Model.EndDate"
-                               asp-route-State="@Model.State" asp-route-ProcessName="@Model.ProcessName" asp-route-Keyword="@Model.Keyword">@i</a>
+                               asp-route-State="@Model.State" asp-route-ProcessName="@Model.ProcessName" asp-route-Keyword="@Model.Keyword"
+                               asp-route-FolderName="@Model.FolderName">@i</a>
                         </li>
                     }
                     <li class="page-item @(Model.PageIndex == Model.TotalPages ? "disabled" : "")">
                         <a class="page-link" asp-action="Index" asp-route-PageIndex="@(Model.PageIndex + 1)" asp-route-PageSize="@Model.PageSize"
                            asp-route-StartDate="@Model.StartDate" asp-route-EndDate="@Model.EndDate"
-                           asp-route-State="@Model.State" asp-route-ProcessName="@Model.ProcessName" asp-route-Keyword="@Model.Keyword">
+                           asp-route-State="@Model.State" asp-route-ProcessName="@Model.ProcessName" asp-route-Keyword="@Model.Keyword"
+                           asp-route-FolderName="@Model.FolderName">
                             <i class="bi bi-chevron-right"></i>
                         </a>
                     </li>

@@ -1,22 +1,47 @@
+using System.Globalization;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
-using UiPathJobManager.Data;
 using UiPathJobManager.Models;
 
 namespace UiPathJobManager.Services;
+
+/// <summary>
+/// 一个待同步的 Orchestrator 文件夹。Path 为文件夹全路径(如 Finance 或 Finance/AP)。
+/// </summary>
+public class UiPathFolderOptions
+{
+    /// <summary>文件夹全路径,对应 /odata/Folders 的 FullyQualifiedName</summary>
+    public string Path { get; set; } = string.Empty;
+
+    /// <summary>是否一并查询该文件夹下的所有子文件夹</summary>
+    public bool IncludeSubfolders { get; set; }
+
+    /// <summary>false 时该条配置不参与同步</summary>
+    public bool Enabled { get; set; } = true;
+}
 
 public class UiPathOptions
 {
     public string BaseUrl { get; set; } = string.Empty;
     public string TenantName { get; set; } = string.Empty;
-    public string? FolderId { get; set; }
-    public string AuthType { get; set; } = "Bearer";
-    public string ApiKey { get; set; } = string.Empty;
-    public string ClientId { get; set; } = string.Empty;
-    public string ClientSecret { get; set; } = string.Empty;
+
+    /// <summary>Orchestrator 登录账号，用于 /api/Account/Authenticate</summary>
+    public string Username { get; set; } = string.Empty;
+
+    /// <summary>Orchestrator 登录密码，用于 /api/Account/Authenticate</summary>
+    public string Password { get; set; } = string.Empty;
+
+    /// <summary>Token 有效期（分钟），Orchestrator 默认 30 分钟</summary>
+    public int TokenExpiryMinutes { get; set; } = 30;
+
+    /// <summary>需要同步的文件夹列表，每个可独立决定是否包含子文件夹</summary>
+    public List<UiPathFolderOptions> Folders { get; set; } = new();
+
+    /// <summary>文件夹树缓存有效期（分钟），展开子文件夹时会用到</summary>
+    public int FolderTreeCacheMinutes { get; set; } = 30;
+
     public int SyncIntervalMinutes { get; set; } = 5;
     public int PageSize { get; set; } = 100;
     public bool UseMockData { get; set; } = true;
@@ -37,17 +62,23 @@ public interface IUiPathApiService
 
 public class UiPathApiService : IUiPathApiService
 {
-    private readonly HttpClient _http;
+    private readonly IHttpClientFactory _factory;
     private readonly UiPathOptions _options;
+    private readonly IUiPathTokenProvider _tokens;
+    private readonly IUiPathFolderService _folders;
     private readonly ILogger<UiPathApiService> _logger;
 
-    private static readonly string[] States =
-        { "Successful", "Failed", "Pending", "Running", "Stopped", "Faulted" };
-
-    public UiPathApiService(IHttpClientFactory factory, IOptions<UiPathOptions> options, ILogger<UiPathApiService> logger)
+    public UiPathApiService(
+        IHttpClientFactory factory,
+        IOptions<UiPathOptions> options,
+        IUiPathTokenProvider tokens,
+        IUiPathFolderService folders,
+        ILogger<UiPathApiService> logger)
     {
-        _http = factory.CreateClient("UiPath");
+        _factory = factory;
         _options = options.Value;
+        _tokens = tokens;
+        _folders = folders;
         _logger = logger;
     }
 
@@ -59,49 +90,60 @@ public class UiPathApiService : IUiPathApiService
             return GenerateMockJobs(startTime, endTime);
         }
 
-        try
+        var folders = await _folders.ResolveTargetFoldersAsync(ct);
+        if (folders.Count == 0) return new List<Job>();
+
+        var token = await _tokens.GetTokenAsync(ct);
+        var allJobs = new List<Job>();
+        var failed = 0;
+
+        foreach (var folder in folders)
         {
-            var token = await GetAccessTokenAsync(ct);
-            _http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
-
-            var url = BuildJobsUrl(startTime, endTime);
-            var allJobs = new List<Job>();
-            int skip = 0;
-
-            while (true)
+            try
             {
-                var pagedUrl = $"{url}&$top={_options.PageSize}&$skip={skip}";
-                var response = await _http.GetAsync(pagedUrl, ct);
-                response.EnsureSuccessStatusCode();
-
-                var json = await response.Content.ReadAsStringAsync(ct);
-                var pageJobs = ParseJobs(json);
-                if (pageJobs.Count == 0) break;
-
-                allJobs.AddRange(pageJobs);
-                if (pageJobs.Count < _options.PageSize) break;
-                skip += _options.PageSize;
+                allJobs.AddRange(await QueryFolderJobsAsync(folder, startTime, endTime, token, ct));
             }
+            catch (Exception ex)
+            {
+                // 单个文件夹失败不影响其它文件夹，但不回退模拟数据，避免假数据入库
+                failed++;
+                _logger.LogError(ex, "查询文件夹 {Folder} 的 Jobs 失败，已跳过", folder.Path);
+            }
+        }
 
-            return allJobs;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "调用 UiPath API 失败，回退到模拟数据");
-            return GenerateMockJobs(startTime, endTime);
-        }
+        _logger.LogInformation(
+            "从 {Total} 个文件夹拉取 Jobs 共 {Count} 条，失败 {Failed} 个", folders.Count, allJobs.Count, failed);
+        return allJobs;
     }
 
     public async Task<bool> TestConnectionAsync(CancellationToken ct = default)
     {
         if (_options.UseMockData) return true;
         if (string.IsNullOrWhiteSpace(_options.BaseUrl)) return false;
+
         try
         {
-            var token = await GetAccessTokenAsync(ct);
-            _http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
-            var resp = await _http.GetAsync($"{_options.BaseUrl.TrimEnd('/')}/odata/Jobs?$top=1", ct);
-            return resp.IsSuccessStatusCode;
+            // 认证 + 拉文件夹树 + 取一条 Job，任一环节失败都算连接失败
+            var folders = await _folders.ResolveTargetFoldersAsync(ct);
+            if (folders.Count == 0)
+            {
+                _logger.LogWarning("连接测试失败：没有解析出任何可用文件夹");
+                return false;
+            }
+
+            var token = await _tokens.GetTokenAsync(ct);
+            using var request = new HttpRequestMessage(
+                HttpMethod.Get, $"{_options.BaseUrl.TrimEnd('/')}/odata/Jobs?$top=1");
+            ApplyHeaders(request, token, folders[0].Path);
+
+            var client = _factory.CreateClient("UiPath");
+            using var response = await client.SendAsync(request, ct);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogWarning("UiPath 连接测试失败 HTTP {Status}", (int)response.StatusCode);
+            }
+            return response.IsSuccessStatusCode;
         }
         catch (Exception ex)
         {
@@ -110,43 +152,73 @@ public class UiPathApiService : IUiPathApiService
         }
     }
 
-    private async Task<string> GetAccessTokenAsync(CancellationToken ct)
+    private async Task<List<Job>> QueryFolderJobsAsync(
+        UiPathFolder folder, DateTime start, DateTime end, string token, CancellationToken ct)
     {
-        // PAT (Personal Access Token)
-        if (_options.AuthType == "Bearer" && !string.IsNullOrWhiteSpace(_options.ApiKey))
+        var jobs = new List<Job>();
+        int skip = 0;
+
+        while (true)
         {
-            return _options.ApiKey;
+            using var request = new HttpRequestMessage(HttpMethod.Get, BuildJobsUrl(start, end, skip));
+            ApplyHeaders(request, token, folder.Path);
+
+            var client = _factory.CreateClient("UiPath");
+            using var response = await client.SendAsync(request, ct);
+            response.EnsureSuccessStatusCode();
+
+            var json = await response.Content.ReadAsStringAsync(ct);
+            var pageJobs = ParseJobs(json, folder);
+            if (pageJobs.Count == 0) break;
+
+            jobs.AddRange(pageJobs);
+            if (pageJobs.Count < _options.PageSize) break;
+            skip += _options.PageSize;
         }
 
-        // OAuth
-        var tokenUrl = $"{_options.BaseUrl.TrimEnd('/')}/identity_/connect/token";
-        var form = new Dictionary<string, string>
-        {
-            ["grant_type"] = "client_credentials",
-            ["client_id"] = _options.ClientId,
-            ["client_secret"] = _options.ClientSecret,
-            ["scope"] = "OR.Jobs.Read OR.Folders.Read"
-        };
-        var resp = await _http.PostAsync(tokenUrl, new FormUrlEncodedContent(form), ct);
-        resp.EnsureSuccessStatusCode();
-        var json = await resp.Content.ReadAsStringAsync(ct);
-        using var doc = JsonDocument.Parse(json);
-        return doc.RootElement.GetProperty("access_token").GetString() ?? string.Empty;
+        _logger.LogInformation("文件夹 {Folder} 拉取 {Count} 条", folder.Path, jobs.Count);
+        return jobs;
     }
 
-    private string BuildJobsUrl(DateTime start, DateTime end)
+    /// <summary>
+    /// 附加 Bearer Token、租户与文件夹请求头。
+    /// Orchestrator 每个请求只能指定一个文件夹，故 folderPath 逐次传入。
+    /// </summary>
+    private void ApplyHeaders(HttpRequestMessage request, string token, string? folderPath)
     {
-        var sb = new StringBuilder($"{_options.BaseUrl.TrimEnd('/')}/odata/Jobs?$filter=");
-        sb.Append($"StartTime ge {start:yyyy-MM-ddTHH:mm:ssZ} and StartTime le {end:yyyy-MM-ddTHH:mm:ssZ}");
-        sb.Append("&$orderby=StartTime desc");
-        if (!string.IsNullOrWhiteSpace(_options.FolderId))
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+        if (!string.IsNullOrWhiteSpace(_options.TenantName))
         {
-            sb.Append($"&$filter=FolderId eq {_options.FolderId}");
+            request.Headers.TryAddWithoutValidation("X-UIPATH-TenantName", _options.TenantName);
         }
-        return sb.ToString();
+        if (!string.IsNullOrWhiteSpace(folderPath))
+        {
+            request.Headers.TryAddWithoutValidation("X-UIPATH-FolderPath-Encoded", EncodeFolderPath(folderPath));
+        }
     }
 
-    private static List<Job> ParseJobs(string json)
+    /// <summary>
+    /// 文件夹路径需按 Base64(UTF-16LE) 编码，直接传明文在中文路径下会出问题
+    /// </summary>
+    private static string EncodeFolderPath(string path) =>
+        Convert.ToBase64String(Encoding.Unicode.GetBytes(path));
+
+    private string BuildJobsUrl(DateTime start, DateTime end, int skip)
+    {
+        // 文件夹由 X-UIPATH-FolderPath-Encoded 头指定，filter 只负责时间段
+        var filter = $"StartTime ge {ToODataUtc(start)} and StartTime le {ToODataUtc(end)}";
+
+        return $"{_options.BaseUrl.TrimEnd('/')}/odata/Jobs"
+               + $"?$filter={Uri.EscapeDataString(filter)}"
+               + $"&$orderby={Uri.EscapeDataString("StartTime desc")}"
+               + $"&$top={_options.PageSize}&$skip={skip}";
+    }
+
+    private static string ToODataUtc(DateTime dt) =>
+        dt.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ", CultureInfo.InvariantCulture);
+
+    private static List<Job> ParseJobs(string json, UiPathFolder folder)
     {
         var result = new List<Job>();
         try
@@ -156,7 +228,7 @@ public class UiPathApiService : IUiPathApiService
             {
                 foreach (var el in arr.EnumerateArray())
                 {
-                    result.Add(MapJob(el));
+                    result.Add(MapJob(el, folder));
                 }
             }
         }
@@ -164,11 +236,13 @@ public class UiPathApiService : IUiPathApiService
         return result;
     }
 
-    private static Job MapJob(JsonElement el)
+    private static Job MapJob(JsonElement el, UiPathFolder folder)
     {
         return new Job
         {
             Id = el.TryGetProperty("Id", out var id) ? id.GetInt64() : 0,
+            FolderId = folder.Id,
+            FolderName = folder.Path,
             ProcessName = el.TryGetProperty("ReleaseName", out var r) ? r.GetString() ?? "" : "",
             RobotName = el.TryGetProperty("Robot", out var rob) && rob.ValueKind == JsonValueKind.Object
                 ? rob.TryGetProperty("Name", out var rn) ? rn.GetString() : null : null,
@@ -189,9 +263,9 @@ public class UiPathApiService : IUiPathApiService
     }
 
     /// <summary>
-    /// 生成模拟数据，便于本地演示与测试
+    /// 生成模拟数据，便于本地演示与测试。会按配置的文件夹(含模拟子文件夹)分配归属
     /// </summary>
-    private static List<Job> GenerateMockJobs(DateTime start, DateTime end)
+    private List<Job> GenerateMockJobs(DateTime start, DateTime end)
     {
         var rnd = new Random((int)(start.Ticks & 0x7FFFFFFF));
         var processes = new[]
@@ -205,6 +279,20 @@ public class UiPathApiService : IUiPathApiService
             "库存盘点_InventoryCheck",
             "审批流程_ApprovalWorkflow"
         };
+
+        // 模拟文件夹池：IncludeSubfolders 的项额外生成两个模拟子文件夹
+        var folderPool = new List<(long Id, string Path)>();
+        long mockFolderId = 1000;
+        foreach (var f in _options.Folders.Where(f => f.Enabled && !string.IsNullOrWhiteSpace(f.Path)))
+        {
+            folderPool.Add((mockFolderId++, f.Path.Trim()));
+            if (f.IncludeSubfolders)
+            {
+                folderPool.Add((mockFolderId++, $"{f.Path.Trim()}/子流程A"));
+                folderPool.Add((mockFolderId++, $"{f.Path.Trim()}/子流程B"));
+            }
+        }
+        if (folderPool.Count == 0) folderPool.Add((mockFolderId, "Default"));
 
         var jobs = new List<Job>();
         var span = end - start;
@@ -228,10 +316,13 @@ public class UiPathApiService : IUiPathApiService
             DateTime? endTime = state is "Running" or "Pending" ? null : startTime.AddSeconds(rnd.Next(30, 600));
             var robot = $"Robot-{rnd.Next(1, 6)}";
             var machine = $"Machine-{rnd.Next(1, 4)}";
+            var pick = folderPool[rnd.Next(folderPool.Count)];
 
             jobs.Add(new Job
             {
                 Id = 100000L + i,
+                FolderId = pick.Id,
+                FolderName = pick.Path,
                 ProcessName = proc,
                 RobotName = robot,
                 MachineName = machine,

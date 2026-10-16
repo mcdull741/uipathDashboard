@@ -79,8 +79,17 @@
         <ul class="mb-0">
             <li><strong>UseMockData = true</strong>: 使用内置模拟数据,便于本地测试,无需真实 UiPath 环境。</li>
             <li><strong>BaseUrl</strong>: UiPath Orchestrator 完整地址,例如 <code>https://cloud.uipath.com/org/tenant/orchestrator_</code></li>
-            <li><strong>TenantName</strong>: 租户名(Cloud 平台必须).</li>
-            <li><strong>AuthType</strong>: <code>Bearer</code> 表示使用 API Key; <code>OAuth</code> 使用 ClientId/ClientSecret。</li>
+            <li><strong>TenantName</strong>: 租户名,认证接口 <code>/api/Account/Authenticate</code> 的 <code>tenancyName</code>。</li>
+            <li><strong>Username / Password</strong>: Orchestrator 登录账号密码,用于换取 Bearer Token (ROPC)。</li>
+            <li><strong>TokenExpiryMinutes</strong>: Token 有效期,默认 30 分钟,过期前会自动重新认证。</li>
+            <li><strong>Folders</strong>: 待同步文件夹数组,在 <code>appsettings.json</code> 的 <code>UiPath.Folders</code> 中配置,每项三个字段:
+                <ul>
+                    <li><code>Path</code>: 文件夹全路径,如 <code>Finance</code> 或 <code>Finance/AP</code></li>
+                    <li><code>IncludeSubfolders</code>: <code>true</code> 时自动展开并查询其所有子文件夹</li>
+                    <li><code>Enabled</code>: <code>false</code> 时该项不参与同步</li>
+                </ul>
+            </li>
+            <li><strong>FolderTreeCacheMinutes</strong>: 文件夹树缓存时间,子文件夹展开依赖它。</li>
             <li><strong>SyncIntervalMinutes</strong>: 后台同步间隔,最小 1 分钟。</li>
             <li><strong>PageSize</strong>: 每次拉取的页大小,用于增量同步。</li>
         </ul>

@@ -38,7 +38,17 @@ public class JobSyncService : IJobSyncService
 
         _logger.LogInformation("开始同步 UiPath Jobs: {Start} - {End}", start, end);
 
+        // 一次调用内部会遍历所有已配置文件夹(含展开的子文件夹)并合并结果
         var jobs = await _api.QueryJobsAsync(start, end, ct);
+
+        if (jobs.Count > 0)
+        {
+            var byFolder = jobs
+                .GroupBy(j => string.IsNullOrWhiteSpace(j.FolderName) ? "(未标注)" : j.FolderName)
+                .Select(g => $"{g.Key}={g.Count()}");
+            _logger.LogInformation("本次同步按文件夹统计: {Stats}", string.Join(", ", byFolder));
+        }
+
         await UpsertJobsAsync(jobs, ct);
 
         // 记录最后同步时间
@@ -142,7 +152,7 @@ public class JobSyncBackgroundService : BackgroundService
             {
                 using var scope = _scopeFactory.CreateScope();
                 var sync = scope.ServiceProvider.GetRequiredService<IJobSyncService>();
-                await sync.SyncAsync(stoppingToken);
+                await sync.SyncAsync(ct: stoppingToken);
             }
             catch (Exception ex)
             {
