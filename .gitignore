@@ -14,3 +14,6 @@ TestResults/
 !**/appsettings.*.json
 !**/appsettings.json
 !**/launchSettings.json
+
+## 调试工具：本地灌 mock 数据的 node 工具不入库
+scripts/
